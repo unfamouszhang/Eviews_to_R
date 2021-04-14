@@ -1,0 +1,485 @@
+---
+title: "Chapter 1: Statistical Analysis A"
+author: "Xie HE"
+date: "4/14/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preface
+
+This markdown covers 1.1-1.3 of book Eviewで学ぶ応用ファイナンス. (1.4 is about Kalman filter and it will be introduced in next time)
+
+- 1.1 the fundamental knowledge of time series 
+
+- 1.2 model estimation by OLS
+
+- 1.3 estimation of AR model
+
+The eviews codes in book have been rewritten in R.
+
+# Necessary R packages
+```{r,message=FALSE}
+library(knitr)
+library(xtable)
+library(bizdays)
+library(zoo)
+library(stats)
+library(moments)
+library(tseries)
+```
+
+## Generating time series
+We not use real stock prices here but instead simulate two virtual stock prices following unit root process for analysis.  
+- Stock market index  
+- Stock prices of DCAM  
+Period: 2010-01-01~2015-12-31 (only business day)
+
+### Generating a date series
+Firstly, we need to generate the data series from January 1st 2010 to December 31th 2015, and since only business days in the period are wanted, we use the create.calendar function from bizdays package.   
+```{r 1.1}
+create.calendar("business_day", weekdays=c("saturday", "sunday"))
+series_date=bizseq("2010-01-01", "2015-12-31", "business_day")
+length(series_date)
+```
+
+
+### Generating stock market index
+Then, we are going to simulate a time series following unit root process as stock market index.
+$$
+\begin{equation}\nonumber
+    tx_t=tx_{t-1}+u_{2t}, u_{2t} \sim N(0,9)
+    \end{equation}
+$$ 
+Here are some functions about normal distribution:
+```{r}
+rnorm(5,mean=0,sd=1) # random generation
+dnorm(0,mean=0,sd=1) # probability density function
+pnorm(0,mean=0,sd=1) # cumulative distribution function
+qnorm(0.5,mean=0,sd=1) # quantile function
+```
+
+We used rnorm of them to generate randoms numbers from a standard normal distribution.
+
+```{r}
+tx=1000
+set.seed(123456)
+random=rnorm(length(series_date))
+for(i in 1:length(series_date)){
+  tx=append(tx,tail(tx,1)+3*random[i])
+  }
+tx_ts=zoo(round(tx,2),order.by = series_date)
+plot(tx_ts)
+```
+
+### Generating stock prices of DCAM
+Then, we are going to simulate another time series also following unit root process as stock prices of DCAM.
+$$
+\begin{equation}\nonumber
+    dcam_t=dcam_{t-1}+u_{1t}, u_{1t} \sim N(0,36)
+    \end{equation}
+$$ 
+```{r}
+dcam=5000
+set.seed(1111)
+random_2=rnorm(length(series_date))
+for(i in 1:length(series_date)){
+  dcam=append(dcam,tail(dcam,1)+6*random_2[i])
+}
+dcam_ts=zoo(round(dcam,2),order.by = series_date)
+plot(dcam_ts)
+```
+
+And here are return series of them that be calculated by first difference in log.
+```{r}
+rd=na.omit(diff(log(dcam_ts)))
+rt=na.omit(diff(log(tx_ts)))
+par(mfrow=c(2,1))
+plot(rt)
+plot(rd)
+```
+
+## Descriptive statistics
+Next, we can check the descriptive statistics for series by using function descriptive defined by ouselves. Here is the function: 
+```{r}
+descriptive=function(x){
+  jb=tseries::jarque.bera.test(x)
+  results=data.frame(
+  'Mean'=mean(x),
+  'Median'=median(x),
+  'Maximum'=max(x),
+  'Minimum'=min(x),
+  'Std.Dev'=sd(x),
+  'Skewness'=moments::skewness(x),
+  'Kurtosis'=moments::kurtosis(x),
+  'Jarque-Bera'=jb$statistic,
+  'Probability'=jb$p.value)
+  rownames(results)=NULL
+  return(results)
+}
+```
+Here are results of DCAM stock prices.
+```{r}
+kable(descriptive(dcam_ts))
+```
+Here are results of DCAM stock returns.
+```{r}
+kable(descriptive(rd))
+```
+
+Next, we are going to show the histogram of two series.  
+Here is the histogram of DCAM stock prices.
+```{r}
+hist(dcam_ts,breaks = seq(4500,5500,length.out=50),freq = T)
+```
+
+Here is the histogram of DCAM stock returns.
+```{r}
+hist(rd,breaks = seq(-0.004,0.004,length.out=50),freq = T)
+```
+
+## Single index model
+Next, we try to fit a univariate linear regression model for return series.
+```{r}
+eq01=lm(rd~rt)
+eq01_sum=summary(eq01)
+kable(eq01_sum$coefficients)
+```
+
+# t-test
+
+## Testing a mean using t-test
+In this section, we used two-tail t-test for if mean equal 0:
+$$
+\begin{equation}\nonumber
+    H_0:\overline{X}=\mu_0,H_1:\overline{X}\neq \mu_0
+    \end{equation}
+$$
+
+t-statistic:
+$$
+\begin{equation}\nonumber
+    t=\frac{\overline{X}-\mu_0}{\frac{s}{\sqrt{n}}}
+    \end{equation}
+$$
+
+For more details on hypothesis testing please watch my vedio on bilibili (chinese only):  <https://support.rstudio.com/hc/en-us/articles/200486468>.
+
+Conducting t-test in R by using t.test function:
+```{r}
+t.test(rd,mu=0)
+```
+
+t statics and p-value can be calculated by ourselves.
+```{r}
+mu=mean(rd)
+sd=sd(rd)
+obs=length(rd)
+h0=0
+t=(mu-h0)/(sd/sqrt(obs))
+p=pt(t,(obs-1))*2 #p=1-pt(t,(obs-1))*2, if t>0
+c('t-value'=t,'p-value'=p)
+```
+
+## Illustration of central limit theorem using Monte-Carlo Simulation
+
+### Central limit theorem
+The central limit theorem states that if you have a population with mean μ and standard deviation σ and take sufficiently large random samples from the population with replacementtext annotation indicator, then the distribution of the sample means will be approximately normally distributed.  
+
+- Central limit theorem  
+If $X_1, X_2, \dots, X_n$ are random samples and $i.i.d \quad (\mu, \sigma^2)$, then:  
+$Y_n=\frac{\sqrt{\hat{X}-\mu}}{\sigma}$,where $\overline{X}_n=\frac{\sum^{n}_{i=1}X_i}{n}$,   
+$s.t. \quad Y_n \overset{D}{\rightarrow} N(0,1)$
+
+
+### Monte-Carlo Simulation
+Monte Carlo methods, or Monte Carlo experiments, are a broad class of computational algorithms that rely on repeated random sampling to obtain numerical results.
+```{r}
+obs=10
+mu=170
+sd=5
+reps=100 #try 1000,10000
+hgt=c()
+m=c()
+se=c()
+t=c()
+set.seed(1234)
+random_3=matrix(rnorm(reps*obs),reps,obs)
+for(i in 1:reps){
+  for(j in 1:obs){
+    hgt[j]=random_3[i,j]*sd+mu
+  }
+  m[i]=mean(hgt)
+  se[i]=sd(hgt)/sqrt(obs)  
+  t[i]=(mu-m[i])/se[i]
+}
+hist(t,breaks = seq(-7,7,0.2),freq = F)
+xfit=seq(-7,7,0.2)
+yfit_1<-dnorm(xfit,mean=mean(t),sd=sd(t)) 
+lines(xfit, yfit_1, col="blue", lwd=2) 
+yfit_2<-dt(xfit,length(xfit)-1) 
+lines(xfit, yfit_2, col="red", lwd=2) 
+legend(x = "topright", legend=c("normal distribution", "t distribution"),
+       col=c("blue", "red"),lty=c(1,1),cex=1)
+```
+
+when reps=1000:  
+```{r,echo=FALSE}
+obs=10
+mu=170
+sd=5
+reps=1000 #please try 1000,10000
+hgt=c()
+m=c()
+se=c()
+t=c()
+set.seed(1234)
+random_3=matrix(rnorm(reps*obs),reps,obs)
+for(i in 1:reps){
+  for(j in 1:obs){
+    hgt[j]=random_3[i,j]*sd+mu
+  }
+  m[i]=mean(hgt)
+  se[i]=sd(hgt)/sqrt(obs)  
+  t[i]=(mu-m[i])/se[i]
+}
+hist(t,breaks = seq(-7,7,0.2),freq = F)
+xfit=seq(-7,7,0.2)
+yfit_1<-dnorm(xfit,mean=mean(t),sd=sd(t)) 
+lines(xfit, yfit_1, col="blue", lwd=2) 
+yfit_2<-dt(xfit,length(xfit)-1) 
+lines(xfit, yfit_2, col="red", lwd=2) 
+legend(x = "topright", legend=c("normal distribution", "t distribution"),
+       col=c("blue", "red"),lty=c(1,1),cex=1)
+```
+
+when reps=10000:  
+```{r,echo=FALSE}
+obs=10
+mu=170
+sd=5
+reps=10000 #please try 1000,10000
+hgt=c()
+m=c()
+se=c()
+t=c()
+set.seed(1234)
+random_3=matrix(rnorm(reps*obs),reps,obs)
+for(i in 1:reps){
+  for(j in 1:obs){
+    hgt[j]=random_3[i,j]*sd+mu
+  }
+  m[i]=mean(hgt)
+  se[i]=sd(hgt)/sqrt(obs)  
+  t[i]=(mu-m[i])/se[i]
+}
+hist(t,breaks = seq(-7,7,0.2),freq = F)
+xfit=seq(-7,7,0.2)
+yfit_1<-dnorm(xfit,mean=mean(t),sd=sd(t)) 
+lines(xfit, yfit_1, col="blue", lwd=2) 
+yfit_2<-dt(xfit,length(xfit)-1) 
+lines(xfit, yfit_2, col="red", lwd=2) 
+legend(x = "topright", legend=c("normal distribution", "t distribution"),
+       col=c("blue", "red"),lty=c(1,1),cex=1)
+```
+
+## t-test for parameter in eq01
+```{r}
+kable(eq01_sum$coefficients)
+b=eq01$coefficients[2]
+se=eq01_sum$coefficients[2,2]
+df=eq01$df.residual
+t=(b-0)/se
+p=pt(t,(df-1))*2
+c('t-value'=t,'p-value'=p)
+```
+
+# Coefficient of determination
+$$
+\begin{equation}\nonumber
+    Y_i=\alpha+\beta X_i+u_i
+    \end{equation}
+$$
+It has:
+$$
+\begin{equation}\nonumber
+    \hat{Y}_i=\hat{\alpha}+\hat{\beta}X_i, \overline{Y}=\hat{\alpha}+\hat{\beta}\overline{X}
+    \end{equation}
+$$
+Coefficient of determination：
+$$
+\begin{equation}\nonumber
+R^2=\frac{\sum (\hat{Y}_i-\overline{Y})^2}{\sum (Y_i-\overline{Y})^2}
+    \end{equation}
+$$
+Adjusted coefficient of determination：
+$$
+\begin{equation}\nonumber
+adj R^2=1-(1-R^2)\frac{n-1}{n-k}
+    \end{equation}
+$$
+
+We can check $R^2$ and $adj R^2$ by using summary function easily:
+```{r}
+summary(eq01)
+```
+
+# Log-likelihood
+The likelihood function (often simply called the likelihood) measures the goodness of fit of a statistical model to a sample of data for given values of the unknown parameters.  
+```{r}
+set.seed(111)
+random_4=matrix(rnorm(200),100,2)
+x1=random_4[,1]
+x2=random_4[,2]+2
+den1=dnorm(x1)
+den2=dnorm(x2)
+logl1=sum(log(den1))
+logl2=sum(log(den2))
+logl1
+logl2
+```
+
+## Histogram of two series
+```{r}
+par(mfrow=c(1,2))
+hist(x1,breaks = seq(-6,6,0.2),freq = T)
+hist(x2,breaks = seq(-6,6,0.2),freq = T)
+```
+
+## Log-likelihood calculation of eq01
+ 
+```{r}
+robs=length(eq01$fitted.values)
+k=2
+e2=(eq01$residuals)^2
+#likelihood
+logl=-(robs/2)*(1+log(2*pi)+log(sum(e2)/robs))
+logLik(eq01)
+logl
+```
+
+# Information criterion 
+## Akaike information criterion (AIC)
+- AIC in Eviews:
+$$
+\begin{equation}\nonumber
+    AIC=-2(l/T)+2(k/T)
+    \end{equation}
+$$    
+- AIC in R:
+$$
+\begin{equation}\nonumber
+    AIC=-2l+2k
+    \end{equation}
+$$    
+```{r}
+aic=-2*logl+2*k 
+aic_2=AIC(eq01) 
+aic_3=-2*logl/robs+2*k/robs
+c(aic,aic_2,aic_3)
+```
+
+##  Bayesian information criterion (BIC)
+- BIC in Eviews:
+$$
+\begin{equation}\nonumber
+    BIC=-2(l/T)+klog(T)/T
+    \end{equation}
+$$    
+- BIC in R:
+$$
+\begin{equation}\nonumber
+    BIC=-2l+klog(T)
+    \end{equation}
+$$    
+```{r}
+bic=-2*logl+log(robs)*k
+bic_2=BIC(eq01)
+bic_3=-2*logl/robs+log(robs)*k/robs
+c(bic,bic_2,bic_3)
+```
+
+##  Hannan–Quinn information criterion (HQC)
+- HQC in Eviews:
+$$
+\begin{equation}\nonumber
+    HQ=-2(l/T)+2klog(log(T))/T
+    \end{equation}
+$$
+```{r}
+hq=-2*logl/robs+2*k*log(log(robs))/robs
+hq
+```
+
+# ACF and PACF
+- Autocorrelation Function (ACF):
+$$
+\begin{equation}\nonumber
+    \rho_k=\frac{\sum_{t=k+1}^{T}(Y_t-\overline{Y})(Y_{t-k}-\overline{Y})}{\sum_{t=1}^{T}(Y_t-\overline{Y})^2}
+    \end{equation}
+$$    
+- Partial Autocorrelation Function (PACF):  
+The partial autocorrelation function is a measure of the correlation between observations of a time series that are separated by k time units ($y_t$ and $y_{t–k}$), after adjusting for the presence of all the other terms of shorter lag ($y_{t–1}, y_{t–2}, ..., y_{t–k–1}$).
+
+## ACF and PACF of DCAM stock prices
+```{r}
+par(mfrow=c(2,1))
+acf(dcam,main='ACF plot of Stock Price of DCAM')
+pacf(dcam,main='PACF plot of Stock Price of DCAM')
+```
+
+# Ljung-Box test
+The Ljung–Box test is a type of statistical test of whether any of a group of autocorrelations of a time series are different from zero.
+$$
+\begin{equation}\nonumber
+    H_0:\rho_1=\rho_2=\dots=\rho_m=0\\
+    H_1:\exists k\in [1,m], \quad s.t. \quad \rho_k \neq 0
+    \end{equation}
+$$
+Q-statistic:
+$$
+\begin{equation}\nonumber
+    Q(m)=T(T+2)\sum_{k=1}^{m}\frac{{\hat{\rho}_k}^2}{T-k} \sim \chi^2(m)
+    \end{equation}
+$$
+
+We can conduct Ljung–Box test in R by using Box.test function:
+```{r}
+for( i in 1:13){
+LB_test=Box.test(dcam_ts, lag = i, type ="Ljung-Box")
+print(c(i,round(unname(LB_test$statistic),2),LB_test$p.value))
+}
+```
+
+# AR model
+## Fitting AR model by ordinary least squares
+Considering a AR(1) model for DCAM stock prices:
+$$
+\begin{equation}\nonumber
+    dcam_t=\beta_0+\beta_1dcam_{t-1}+u_t
+    \end{equation}
+$$  
+
+The function ar.ols allows us to fit an autoregressive time series model to the data by ordinary least squares, by default selecting the complexity by AIC in R.
+```{r}
+ar.ols(dcam, 
+       order.max = 1, 
+       demean = F, 
+       intercept = T)
+```       
+
+## Fitting AR(1) model using AR term:
+```{r, warning=FALSE}
+#estimated by using conditional-sum-of-squares
+AR1_1<- arima(dcam_ts, order = c(1,0,0),method='CSS')
+AR1_1
+```
+
+```{r}
+#estimated by using maximum likelihood
+AR1_2 <- arima(dcam_ts, order = c(1,0,0),method='ML')
+AR1_2
+```
