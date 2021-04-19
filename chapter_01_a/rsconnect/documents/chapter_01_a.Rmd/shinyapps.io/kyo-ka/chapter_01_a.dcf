@@ -1,0 +1,13 @@
+name: chapter_01_a
+title: chapter_01_a
+username:
+account: kyo-ka
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 3970212
+bundleId: 4488693
+url: https://kyo-ka.shinyapps.io/chapter_01_a/
+when: 1618802890.83176
+lastSyncTime: 1618802890.83177
+asMultiple: FALSE
+asStatic: FALSE
